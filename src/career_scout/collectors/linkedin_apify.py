@@ -11,27 +11,20 @@ from career_scout.models import Job
 
 
 class LinkedInApifyCollector:
-    """Discover LinkedIn vacancies via Apify, but do not trust discovery as live proof.
+    """Fresh LinkedIn discovery using public guest listings through Apify.
 
-    Discovery results are candidates only. A vacancy becomes actionable only after a
-    fresh retrieval of its canonical individual LinkedIn job URL confirms that the
-    page still represents that exact job and does not expose a closed/expired state.
+    Discovery is constrained to the past 24 hours. It is still not authoritative
+    proof of live status; a rendered browser verification gate runs later.
     """
 
-    ACTOR = "automation-lab~linkedin-jobs-scraper"
+    ACTOR = "logiover~linkedin-jobs-scraper"
     API = "https://api.apify.com/v2"
-    CLOSED_MARKERS = (
-        "no longer accepting applications",
-        "this job is no longer available",
-        "job is no longer available",
-        "position has been filled",
-    )
 
     def __init__(self, token: str | None = None, timeout: float = 180.0) -> None:
         self.token = token or os.getenv("APIFY_TOKEN")
         if not self.token:
             raise RuntimeError("APIFY_TOKEN is required for the LinkedIn collector")
-        self.client = httpx.Client(timeout=timeout, follow_redirects=True, headers={"User-Agent": "Mozilla/5.0"})
+        self.client = httpx.Client(timeout=timeout, follow_redirects=True)
 
     def close(self) -> None:
         self.client.close()
@@ -60,10 +53,12 @@ class LinkedInApifyCollector:
     def search(self, keywords: str, *, where: str = "Sydney, New South Wales, Australia", page: int = 1, sortmode: str = "ListedDate") -> list[Job]:
         endpoint = f"{self.API}/acts/{self.ACTOR}/run-sync-get-dataset-items"
         payload = {
-            "searchQuery": keywords,
+            "searchTerm": keywords,
             "location": where,
-            "maxJobs": 40,
-            "scrapeJobDetails": True,
+            "datePosted": "past24h",
+            "sortBy": "date",
+            "maxItems": 80,
+            "fetchDetails": True,
         }
         response = self.client.post(endpoint, params={"token": self.token}, json=payload)
         response.raise_for_status()
@@ -77,7 +72,7 @@ class LinkedInApifyCollector:
                 continue
             job_id = self._job_id(row)
             title = self._text(row, "title", "jobTitle", "job_title")
-            description = self._text(row, "description", "jobDescription", "job_description", "content")
+            description = self._text(row, "descriptionText", "description", "jobDescription", "job_description", "content")
             if not job_id or not title or not description:
                 continue
             canonical = self._canonical_url(job_id)
@@ -98,37 +93,12 @@ class LinkedInApifyCollector:
                 teaser=self._text(row, "snippet", "summary", "abstract"),
                 is_live=None,
                 is_expired=None,
-                status="DISCOVERED_UNVERIFIED",
+                status="DISCOVERED_PAST_24H_UNVERIFIED",
                 raw=row,
             ))
         return jobs
 
     def verify_and_enrich(self, job: Job) -> Job:
-        job.canonical_url = self._canonical_url(job.source_job_id)
-        job.url = job.canonical_url
-        job.verified_at = datetime.now(timezone.utc).isoformat()
-        job.verification_method = "canonical_linkedin_job_page"
-        try:
-            response = self.client.get(job.canonical_url)
-        except httpx.HTTPError:
-            job.is_live = False
-            job.is_expired = None
-            job.status = "VERIFICATION_REQUEST_FAILED"
-            return job
-
-        final_url = str(response.url)
-        body = response.text.lower()
-        exact_job = job.source_job_id in final_url or job.source_job_id in response.text
-        closed = any(marker in body for marker in self.CLOSED_MARKERS)
-        wrong_surface = "/jobs/view/" not in final_url and job.source_job_id not in response.text
-
-        if response.status_code != 200 or not exact_job or wrong_surface or closed:
-            job.is_live = False
-            job.is_expired = closed
-            job.status = "CLOSED" if closed else "UNVERIFIED_CANONICAL_JOB"
-            return job
-
-        job.is_live = True
-        job.is_expired = False
-        job.status = "VERIFIED_LIVE_CANONICAL"
+        # Final verification is intentionally delegated to the browser-backed
+        # publication gate in the pipeline.
         return job

@@ -27,7 +27,18 @@ class MatchResult:
 
 
 def _norm(text: str) -> str:
-    return re.sub(r"[^a-z0-9+#]+", " ", text.lower()).strip()
+    text = text.lower()
+    # Match common recruiter-language variants without pretending adjacent skills are identical.
+    replacements = {
+        "programme": "program",
+        "management": "manager",
+        "managing": "manager",
+        "e-commerce": "ecommerce",
+        "customer experience": "cx",
+    }
+    for old, new in replacements.items():
+        text = text.replace(old, new)
+    return re.sub(r"[^a-z0-9+#]+", " ", text).strip()
 
 
 def _contains(text: str, phrase: str) -> bool:
@@ -89,12 +100,21 @@ def score_job(job: Any, profile: dict[str, Any], preferences: dict[str, Any]) ->
     style = signals.working_style_alignment
     tolerance = signals.transferable_experience_tolerance
 
-    evidence = min(70, len(core) * 3 + len(strong) * 3 + len(ai) * 2 + len(methods) * 2 + len(role_titles) * 4)
+    # Evidence dominates the score. Platform/AI/behavioural signals help, but cannot rescue hard gaps.
+    evidence = min(
+        70,
+        len(core) * 6
+        + len(strong) * 5
+        + len(ai) * 3
+        + len(methods) * 3
+        + len(role_titles) * 7,
+    )
+
     title = _norm(getattr(job, "title", ""))
-    if any(x in title for x in ["head of", "director", "program manager", "programme manager", "senior project manager", "senior program manager", "delivery lead", "transformation lead"]):
-        seniority = 12
+    if any(x in title for x in ["head of", "director", "program manager", "senior project manager", "senior program manager", "delivery lead", "transformation lead"]):
+        seniority = 15
     elif "project manager" in title:
-        seniority = 7
+        seniority = 9
     else:
         seniority = 0
 

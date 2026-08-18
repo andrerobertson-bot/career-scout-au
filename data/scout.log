@@ -1,0 +1,10 @@
+Traceback (most recent call last):
+  File "/opt/hostedtoolcache/Python/3.12.13/x64/bin/career-scout", line 3, in <module>
+    from career_scout.cli import main
+  File "/home/runner/work/career-scout-au/career-scout-au/src/career_scout/cli.py", line 6, in <module>
+    from career_scout.pipeline import collect_verified_seek_jobs
+  File "/home/runner/work/career-scout-au/career-scout-au/src/career_scout/pipeline.py", line 8, in <module>
+    from career_scout.profile_loader import ScoutContext
+  File "/home/runner/work/career-scout-au/career-scout-au/src/career_scout/profile_loader.py", line 8, in <module>
+    import requests
+ModuleNotFoundError: No module named 'requests'

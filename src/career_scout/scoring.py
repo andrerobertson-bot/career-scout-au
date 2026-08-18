@@ -32,9 +32,7 @@ def _norm(text: str) -> str:
 
 def _contains(text: str, phrase: str) -> bool:
     p = _norm(phrase)
-    if len(p) < 3:
-        return False
-    return p in _norm(text)
+    return len(p) >= 3 and p in _norm(text)
 
 
 def _flatten(value: Any) -> list[str]:
@@ -60,7 +58,7 @@ def _matches(text: str, section: Any, limit: int = 16) -> list[str]:
     return seen
 
 
-def _hard_gaps(text: str, profile: dict[str, Any]) -> list[str]:
+def _hard_gaps(text: str) -> list[str]:
     t = _norm(text)
     gaps: list[str] = []
     rules = [
@@ -83,22 +81,22 @@ def score_job(job: Any, profile: dict[str, Any], preferences: dict[str, Any]) ->
     ai = _matches(text, profile.get("ai_agentic_technology", {}), limit=10)
     methods = _matches(text, profile.get("delivery_methods", []), limit=8)
     role_titles = _matches(text, profile.get("target_role_families", {}), limit=6)
-    hard = _hard_gaps(text, profile)
+    hard = _hard_gaps(text)
 
     signals = analyse_jd(text)
-    openness = int(signals.get("jd_openness", 0))
-    rigidity = int(signals.get("jd_rigidity", 0))
-    style = int(signals.get("working_style_alignment", 0))
-    tolerance = signals.get("transferable_experience_tolerance", "MEDIUM")
+    openness = signals.openness
+    rigidity = signals.rigidity
+    style = signals.working_style_alignment
+    tolerance = signals.transferable_experience_tolerance
 
-    # Evidence coverage dominates. Behavioural/JD tone is intentionally secondary.
     evidence = min(70, len(core) * 3 + len(strong) * 3 + len(ai) * 2 + len(methods) * 2 + len(role_titles) * 4)
-    seniority = 0
     title = _norm(getattr(job, "title", ""))
     if any(x in title for x in ["head of", "director", "program manager", "programme manager", "senior project manager", "senior program manager", "delivery lead", "transformation lead"]):
         seniority = 12
     elif "project manager" in title:
         seniority = 7
+    else:
+        seniority = 0
 
     practical = 8
     if getattr(job, "is_hybrid", False) or getattr(job, "is_remote", False):

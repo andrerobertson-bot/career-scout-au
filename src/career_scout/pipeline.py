@@ -5,6 +5,7 @@ from dataclasses import asdict
 
 import httpx
 
+from career_scout.browser_verify import BrowserVerifier
 from career_scout.collectors.linkedin_apify import LinkedInApifyCollector
 from career_scout.collectors.seek import SeekCollector
 from career_scout.collectors.seek_apify import SeekApifyCollector
@@ -34,12 +35,6 @@ def _where_for(source: str, where: str) -> str:
 
 
 def _publishable(job) -> bool:
-    """Hard publication gate.
-
-    Discovery is never proof of availability. A published job must have a canonical
-    individual vacancy URL, a matching source/job id, a full description and a fresh
-    successful verification result. Anything ambiguous is silently rejected.
-    """
     if job.is_live is not True:
         return False
     if not job.source_job_id or not job.description or not job.verified_at:
@@ -73,16 +68,17 @@ def collect_verified_jobs(
     shortlist_size: int = 15,
     enable_linkedin: bool = True,
 ) -> list[dict]:
-    """Discover, verify, filter, deduplicate and rank current vacancies.
+    """Discover broadly, pre-rank cheaply, then browser-verify before publishing.
 
-    Every actionable result must pass a per-job live-state verification immediately
-    before publication. Search pages and search-engine indexes are discovery only.
-    Career Operator Vault remains authoritative for candidate evidence/preferences.
+    On managed acquisition, only the strongest candidate pool is opened in a real
+    rendered browser. This keeps cost/time reasonable while making live status and
+    posting age authoritative at publication time.
     """
-    output: list[dict] = []
+    candidates: list[dict] = []
     seen_ids: set[str] = set()
     seen_fingerprints: set[str] = set()
     collectors = _collectors(enable_linkedin=enable_linkedin)
+    browser = BrowserVerifier() if os.getenv("APIFY_TOKEN") else None
     try:
         for source, collector in collectors:
             source_where = _where_for(source, where)
@@ -92,21 +88,17 @@ def collect_verified_jobs(
                 except httpx.HTTPStatusError as exc:
                     if source == "seek" and exc.response.status_code == 403 and not os.getenv("APIFY_TOKEN"):
                         raise RuntimeError(
-                            "SEEK blocked the direct collector from this runtime. Configure APIFY_TOKEN for managed SEEK/LinkedIn acquisition."
+                            "SEEK blocked direct collection. Configure APIFY_TOKEN for managed acquisition."
                         ) from exc
                     raise
+
                 for job in jobs:
                     if job.key in seen_ids:
                         continue
                     seen_ids.add(job.key)
 
-                    job = collector.verify_and_enrich(job)
-                    if not _publishable(job):
-                        continue
-
                     fingerprint = "|".join(
-                        (x or "").strip().lower()
-                        for x in [job.company, job.title, job.location]
+                        (x or "").strip().lower() for x in [job.company, job.title, job.location]
                     )
                     if fingerprint and fingerprint in seen_fingerprints:
                         continue
@@ -116,44 +108,76 @@ def collect_verified_jobs(
                     preference = evaluate_preferences(job)
                     if not preference.allowed:
                         continue
-
                     signals = analyse_jd(job.description)
                     match = score_job(job, context.profile, context.preferences)
-                    freshness = _freshness_bonus(job.age_days)
-                    adjusted_score = max(0, min(100, match.score + freshness))
-                    match.score = adjusted_score
-                    if not match.hard_gaps:
-                        if adjusted_score >= 85:
-                            match.verdict = "STRONG APPLY"
-                        elif adjusted_score >= 72:
-                            match.verdict = "APPLY"
-                        elif adjusted_score >= 60:
-                            match.verdict = "REVIEW"
-                        else:
-                            match.verdict = "LOW PRIORITY"
+                    if match.hard_gaps:
+                        continue
 
-                    output.append({
-                        "job": job.to_dict(),
-                        "preference": asdict(preference),
-                        "jd_signals": asdict(signals),
-                        "match": match.to_dict(),
-                        "publication": {
-                            "canonical_url": job.canonical_url or job.url,
-                            "verified_at": job.verified_at,
-                            "verification_method": job.verification_method,
-                            "freshness_adjustment": freshness,
-                        },
+                    candidates.append({
+                        "job_obj": job,
+                        "preference": preference,
+                        "signals": signals,
+                        "match": match,
                     })
 
-        output.sort(
-            key=lambda row: (
-                row["match"]["score"],
-                -(row["job"].get("age_days") if row["job"].get("age_days") is not None else 9999),
-            ),
-            reverse=True,
-        )
-        return output[:shortlist_size]
+        # Verify best candidates first. We allow a generous pool because some will
+        # fail live-state, salary/location or duplicate gates at publication time.
+        candidates.sort(key=lambda row: row["match"].score, reverse=True)
+        verify_pool = candidates[: max(shortlist_size * 4, 40)]
+        output: list[dict] = []
+
+        for row in verify_pool:
+            job = row["job_obj"]
+            if browser is not None:
+                job = browser.verify(job)
+            else:
+                # Local/direct mode keeps the collector's own final verification.
+                source_collector = next(c for s, c in collectors if s == job.source)
+                job = source_collector.verify_and_enrich(job)
+
+            if not _publishable(job):
+                continue
+
+            # Re-evaluate preferences after rendered verification because page-derived
+            # work arrangement / freshness may differ from discovery metadata.
+            preference = evaluate_preferences(job)
+            if not preference.allowed:
+                continue
+            match = score_job(job, context.profile, context.preferences)
+            if match.hard_gaps:
+                continue
+
+            freshness = _freshness_bonus(job.age_days)
+            match.score = max(0, min(100, match.score + freshness))
+            if match.score >= 85:
+                match.verdict = "STRONG APPLY"
+            elif match.score >= 72:
+                match.verdict = "APPLY"
+            elif match.score >= 60:
+                match.verdict = "REVIEW"
+            else:
+                match.verdict = "LOW PRIORITY"
+
+            output.append({
+                "job": job.to_dict(),
+                "preference": asdict(preference),
+                "jd_signals": asdict(row["signals"]),
+                "match": match.to_dict(),
+                "publication": {
+                    "canonical_url": job.canonical_url or job.url,
+                    "verified_at": job.verified_at,
+                    "verification_method": job.verification_method,
+                    "freshness_adjustment": freshness,
+                },
+            })
+            if len(output) >= shortlist_size:
+                break
+
+        output.sort(key=lambda row: row["match"]["score"], reverse=True)
+        return output
     finally:
+        if browser is not None:
+            browser.close()
         for _, collector in collectors:
             collector.close()
 
@@ -164,7 +188,6 @@ def collect_verified_seek_jobs(
     where: str = "All Sydney NSW",
     shortlist_size: int = 15,
 ) -> list[dict]:
-    """Compatibility wrapper for earlier Prototype 0.2 callers."""
     return collect_verified_jobs(
         keywords,
         context=context,

@@ -7,7 +7,8 @@ on:
     paths-ignore:
       - "data/**"
   schedule:
-    - cron: "15 20 * * *"
+    - cron: "0 10 * * *"
+      timezone: "Australia/Sydney"
 
 permissions:
   contents: write
@@ -68,6 +69,7 @@ jobs:
               'install_outcome': os.getenv('INSTALL_OUTCOME'),
               'test_outcome': os.getenv('TEST_OUTCOME'),
               'scout_outcome': os.getenv('SCOUT_OUTCOME'),
+              'window_hours': 24,
               'shortlist_file': 'data/latest_shortlist.json' if os.path.exists('data/latest_shortlist.json') else None,
               'log_file': 'data/scout.log' if os.path.exists('data/scout.log') else None,
           }

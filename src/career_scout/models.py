@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
+from datetime import datetime, timezone
 from typing import Any
 
 
@@ -18,6 +19,7 @@ class Job:
     salary_max: float | None = None
     salary_period: str | None = None
     url: str | None = None
+    canonical_url: str | None = None
     apply_url: str | None = None
     posted_at: str | None = None
     valid_through: str | None = None
@@ -28,13 +30,28 @@ class Job:
     is_expired: bool | None = None
     status: str | None = None
     verified_at: str | None = None
+    verification_method: str | None = None
     raw: dict[str, Any] = field(default_factory=dict, repr=False)
 
     @property
     def key(self) -> str:
         return f"{self.source}:{self.source_job_id}"
 
+    @property
+    def age_days(self) -> int | None:
+        if not self.posted_at:
+            return None
+        value = self.posted_at.strip()
+        try:
+            dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            return max(0, (datetime.now(timezone.utc) - dt.astimezone(timezone.utc)).days)
+        except ValueError:
+            return None
+
     def to_dict(self) -> dict[str, Any]:
         data = asdict(self)
         data.pop("raw", None)
+        data["age_days"] = self.age_days
         return data

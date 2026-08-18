@@ -34,7 +34,10 @@ jobs:
         name: Run Career Scout
         env:
           CAREER_OPERATOR_TOKEN: ${{ secrets.CAREER_OPERATOR_TOKEN }}
-        run: career-scout --output career_scout_jobs.json --limit 15
+        run: |
+          mkdir -p data
+          set -o pipefail
+          career-scout --output career_scout_jobs.json --limit 15 2>&1 | tee data/scout.log
 
       - name: Upload shortlist artifact
         if: steps.scout.outcome == 'success'
@@ -65,6 +68,7 @@ jobs:
               'test_outcome': os.getenv('TEST_OUTCOME'),
               'scout_outcome': os.getenv('SCOUT_OUTCOME'),
               'shortlist_file': 'data/latest_shortlist.json' if os.path.exists('data/latest_shortlist.json') else None,
+              'log_file': 'data/scout.log' if os.path.exists('data/scout.log') else None,
           }
           with open('data/latest_run_status.json','w',encoding='utf-8') as f:
               json.dump(status, f, indent=2)
@@ -73,5 +77,6 @@ jobs:
           git config user.email "career-scout-bot@users.noreply.github.com"
           git add data/latest_run_status.json
           if [ -f data/latest_shortlist.json ]; then git add data/latest_shortlist.json; fi
+          if [ -f data/scout.log ]; then git add data/scout.log; fi
           git diff --cached --quiet || git commit -m "Update Career Scout run status"
           git push

@@ -80,6 +80,7 @@ class LinkedInApifyCollector:
             description = self._text(row, "description", "jobDescription", "job_description", "content")
             if not job_id or not title or not description:
                 continue
+            canonical = self._canonical_url(job_id)
             jobs.append(Job(
                 source="linkedin",
                 source_job_id=job_id,
@@ -89,12 +90,12 @@ class LinkedInApifyCollector:
                 work_arrangement=self._text(row, "workplaceType", "workplace_type", "workArrangement"),
                 employment_type=self._text(row, "employmentType", "jobType", "employment_type"),
                 salary_text=self._text(row, "salary", "salaryText", "salaryRange"),
-                url=self._canonical_url(job_id),
+                url=canonical,
+                canonical_url=canonical,
                 apply_url=self._text(row, "applyUrl", "apply_url"),
                 posted_at=self._text(row, "postedDate", "postedAt", "datePosted"),
                 description=description,
                 teaser=self._text(row, "snippet", "summary", "abstract"),
-                # Discovery is explicitly NOT verification.
                 is_live=None,
                 is_expired=None,
                 status="DISCOVERED_UNVERIFIED",
@@ -103,10 +104,12 @@ class LinkedInApifyCollector:
         return jobs
 
     def verify_and_enrich(self, job: Job) -> Job:
-        job.url = self._canonical_url(job.source_job_id)
+        job.canonical_url = self._canonical_url(job.source_job_id)
+        job.url = job.canonical_url
         job.verified_at = datetime.now(timezone.utc).isoformat()
+        job.verification_method = "canonical_linkedin_job_page"
         try:
-            response = self.client.get(job.url)
+            response = self.client.get(job.canonical_url)
         except httpx.HTTPError:
             job.is_live = False
             job.is_expired = None

@@ -33,6 +33,39 @@ def _where_for(source: str, where: str) -> str:
     return where
 
 
+def _publishable(job) -> bool:
+    """Hard publication gate.
+
+    Discovery is never proof of availability. A published job must have a canonical
+    individual vacancy URL, a matching source/job id, a full description and a fresh
+    successful verification result. Anything ambiguous is silently rejected.
+    """
+    if job.is_live is not True:
+        return False
+    if not job.source_job_id or not job.description or not job.verified_at:
+        return False
+    url = job.canonical_url or job.url or ""
+    if job.source == "seek":
+        return f"/job/{job.source_job_id}" in url
+    if job.source == "linkedin":
+        return "/jobs/view/" in url and job.source_job_id in url
+    return False
+
+
+def _freshness_bonus(age_days: int | None) -> int:
+    if age_days is None:
+        return 0
+    if age_days <= 2:
+        return 8
+    if age_days <= 7:
+        return 5
+    if age_days <= 14:
+        return 2
+    if age_days <= 30:
+        return -4
+    return -12
+
+
 def collect_verified_jobs(
     keywords: list[str],
     context: ScoutContext,
@@ -42,9 +75,9 @@ def collect_verified_jobs(
 ) -> list[dict]:
     """Discover, verify, filter, deduplicate and rank current vacancies.
 
-    Every actionable result must come from a current per-job retrieval with a full
-    description. Career Operator Vault remains authoritative for candidate evidence
-    and Scout preferences.
+    Every actionable result must pass a per-job live-state verification immediately
+    before publication. Search pages and search-engine indexes are discovery only.
+    Career Operator Vault remains authoritative for candidate evidence/preferences.
     """
     output: list[dict] = []
     seen_ids: set[str] = set()
@@ -66,11 +99,11 @@ def collect_verified_jobs(
                     if job.key in seen_ids:
                         continue
                     seen_ids.add(job.key)
+
                     job = collector.verify_and_enrich(job)
-                    if not job.is_live:
+                    if not _publishable(job):
                         continue
 
-                    # Cross-board dedupe: same company/title/location becomes one opportunity.
                     fingerprint = "|".join(
                         (x or "").strip().lower()
                         for x in [job.company, job.title, job.location]
@@ -83,15 +116,42 @@ def collect_verified_jobs(
                     preference = evaluate_preferences(job)
                     if not preference.allowed:
                         continue
+
                     signals = analyse_jd(job.description)
                     match = score_job(job, context.profile, context.preferences)
+                    freshness = _freshness_bonus(job.age_days)
+                    adjusted_score = max(0, min(100, match.score + freshness))
+                    match.score = adjusted_score
+                    if not match.hard_gaps:
+                        if adjusted_score >= 85:
+                            match.verdict = "STRONG APPLY"
+                        elif adjusted_score >= 72:
+                            match.verdict = "APPLY"
+                        elif adjusted_score >= 60:
+                            match.verdict = "REVIEW"
+                        else:
+                            match.verdict = "LOW PRIORITY"
+
                     output.append({
                         "job": job.to_dict(),
                         "preference": asdict(preference),
                         "jd_signals": asdict(signals),
                         "match": match.to_dict(),
+                        "publication": {
+                            "canonical_url": job.canonical_url or job.url,
+                            "verified_at": job.verified_at,
+                            "verification_method": job.verification_method,
+                            "freshness_adjustment": freshness,
+                        },
                     })
-        output.sort(key=lambda row: row["match"]["score"], reverse=True)
+
+        output.sort(
+            key=lambda row: (
+                row["match"]["score"],
+                -(row["job"].get("age_days") if row["job"].get("age_days") is not None else 9999),
+            ),
+            reverse=True,
+        )
         return output[:shortlist_size]
     finally:
         for _, collector in collectors:

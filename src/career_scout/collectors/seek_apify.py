@@ -80,6 +80,7 @@ class SeekApifyCollector:
             description = self._text(row, "description", "jobDescription", "job_description", "content")
             if not job_id or not title or not description:
                 continue
+            canonical = self._canonical_url(job_id)
             jobs.append(Job(
                 source="seek",
                 source_job_id=job_id,
@@ -89,7 +90,8 @@ class SeekApifyCollector:
                 work_arrangement=self._text(row, "workArrangement", "work_arrangement", "workType"),
                 employment_type=self._text(row, "employmentType", "employment_type", "workType"),
                 salary_text=self._text(row, "salary", "salaryText", "salaryLabel"),
-                url=self._canonical_url(job_id),
+                url=canonical,
+                canonical_url=canonical,
                 apply_url=self._text(row, "applyUrl", "apply_url"),
                 posted_at=self._text(row, "postedAt", "listingDate", "datePosted"),
                 valid_through=self._text(row, "validThrough", "expiresAt"),
@@ -103,10 +105,12 @@ class SeekApifyCollector:
         return jobs
 
     def verify_and_enrich(self, job: Job) -> Job:
-        job.url = self._canonical_url(job.source_job_id)
+        job.canonical_url = self._canonical_url(job.source_job_id)
+        job.url = job.canonical_url
         job.verified_at = datetime.now(timezone.utc).isoformat()
+        job.verification_method = "canonical_seek_job_page"
         try:
-            response = self.client.get(job.url)
+            response = self.client.get(job.canonical_url)
         except httpx.HTTPError:
             job.is_live = False
             job.status = "VERIFICATION_REQUEST_FAILED"

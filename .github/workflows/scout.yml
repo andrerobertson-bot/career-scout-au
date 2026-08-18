@@ -4,11 +4,13 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
+    paths-ignore:
+      - "data/**"
   schedule:
     - cron: "15 20 * * *"
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   scout:
@@ -26,9 +28,28 @@ jobs:
         env:
           CAREER_OPERATOR_TOKEN: ${{ secrets.CAREER_OPERATOR_TOKEN }}
         run: career-scout --output career_scout_jobs.json --limit 15
-      - name: Upload shortlist
+      - name: Upload shortlist artifact
         uses: actions/upload-artifact@v4
         with:
           name: career-scout-shortlist
           path: career_scout_jobs.json
           retention-days: 14
+      - name: Persist latest shortlist in repository
+        run: |
+          mkdir -p data
+          cp career_scout_jobs.json data/latest_shortlist.json
+          python - <<'PY'
+          import json
+          from datetime import datetime, timezone
+          with open('data/latest_run_status.json','w',encoding='utf-8') as f:
+              json.dump({
+                  'status': 'success',
+                  'generated_at_utc': datetime.now(timezone.utc).isoformat(),
+                  'shortlist_file': 'data/latest_shortlist.json'
+              }, f, indent=2)
+          PY
+          git config user.name "career-scout-bot"
+          git config user.email "career-scout-bot@users.noreply.github.com"
+          git add data/latest_shortlist.json data/latest_run_status.json
+          git diff --cached --quiet || git commit -m "Update latest Career Scout shortlist"
+          git push

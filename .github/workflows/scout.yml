@@ -1,0 +1,32 @@
+name: Career Scout AU
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "15 20 * * *"
+
+permissions:
+  contents: read
+
+jobs:
+  scout:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install
+        run: pip install -e .
+      - name: Run tests
+        run: pip install pytest && pytest -q
+      - name: Run Career Scout
+        env:
+          CAREER_OPERATOR_TOKEN: ${{ secrets.CAREER_OPERATOR_TOKEN }}
+        run: career-scout --output career_scout_jobs.json --limit 15
+      - name: Upload shortlist
+        uses: actions/upload-artifact@v4
+        with:
+          name: career-scout-shortlist
+          path: career_scout_jobs.json
+          retention-days: 14

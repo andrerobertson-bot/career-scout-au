@@ -34,6 +34,7 @@ jobs:
         name: Run Career Scout
         env:
           CAREER_OPERATOR_TOKEN: ${{ secrets.CAREER_OPERATOR_TOKEN }}
+          APIFY_TOKEN: ${{ secrets.APIFY_TOKEN }}
         run: |
           mkdir -p data
           set -o pipefail

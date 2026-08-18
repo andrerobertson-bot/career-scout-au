@@ -17,39 +17,61 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Install
+
+      - id: install
+        name: Install
         run: pip install -e .
-      - name: Run tests
+
+      - id: tests
+        name: Run tests
         run: pip install pytest && pytest -q
-      - name: Run Career Scout
+
+      - id: scout
+        name: Run Career Scout
         env:
           CAREER_OPERATOR_TOKEN: ${{ secrets.CAREER_OPERATOR_TOKEN }}
         run: career-scout --output career_scout_jobs.json --limit 15
+
       - name: Upload shortlist artifact
+        if: steps.scout.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: career-scout-shortlist
           path: career_scout_jobs.json
           retention-days: 14
-      - name: Persist latest shortlist in repository
+
+      - name: Persist run status and latest shortlist
+        if: always()
+        env:
+          INSTALL_OUTCOME: ${{ steps.install.outcome }}
+          TEST_OUTCOME: ${{ steps.tests.outcome }}
+          SCOUT_OUTCOME: ${{ steps.scout.outcome }}
         run: |
           mkdir -p data
-          cp career_scout_jobs.json data/latest_shortlist.json
+          if [ -f career_scout_jobs.json ]; then
+            cp career_scout_jobs.json data/latest_shortlist.json
+          fi
           python - <<'PY'
-          import json
+          import json, os
           from datetime import datetime, timezone
+          status = {
+              'status': 'success' if os.getenv('SCOUT_OUTCOME') == 'success' else 'failure',
+              'generated_at_utc': datetime.now(timezone.utc).isoformat(),
+              'install_outcome': os.getenv('INSTALL_OUTCOME'),
+              'test_outcome': os.getenv('TEST_OUTCOME'),
+              'scout_outcome': os.getenv('SCOUT_OUTCOME'),
+              'shortlist_file': 'data/latest_shortlist.json' if os.path.exists('data/latest_shortlist.json') else None,
+          }
           with open('data/latest_run_status.json','w',encoding='utf-8') as f:
-              json.dump({
-                  'status': 'success',
-                  'generated_at_utc': datetime.now(timezone.utc).isoformat(),
-                  'shortlist_file': 'data/latest_shortlist.json'
-              }, f, indent=2)
+              json.dump(status, f, indent=2)
           PY
           git config user.name "career-scout-bot"
           git config user.email "career-scout-bot@users.noreply.github.com"
-          git add data/latest_shortlist.json data/latest_run_status.json
-          git diff --cached --quiet || git commit -m "Update latest Career Scout shortlist"
+          git add data/latest_run_status.json
+          if [ -f data/latest_shortlist.json ]; then git add data/latest_shortlist.json; fi
+          git diff --cached --quiet || git commit -m "Update Career Scout run status"
           git push

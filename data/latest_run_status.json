@@ -1,9 +1,10 @@
 {
   "status": "success",
-  "generated_at_utc": "2026-08-18T14:27:06.137738+00:00",
+  "generated_at_utc": "2026-08-18T14:27:51.066304+00:00",
   "install_outcome": "success",
   "test_outcome": "success",
   "scout_outcome": "success",
+  "window_hours": 24,
   "shortlist_file": "data/latest_shortlist.json",
   "log_file": "data/scout.log"
 }

@@ -61,6 +61,22 @@ def _freshness_bonus(age_days: int | None) -> int:
     return -12
 
 
+def _ledger_key(job) -> str:
+    source = (job.source or "").strip().lower()
+    job_id = (job.source_job_id or "").strip()
+    return f"{source}:{job_id}" if source and job_id else ""
+
+
+def _suppressed_by_ledger(job, context: ScoutContext) -> bool:
+    ledger = context.ledger or {}
+    roles = ledger.get("roles", {}) if isinstance(ledger, dict) else {}
+    suppress = set(ledger.get("suppress_as_new", [])) if isinstance(ledger, dict) else set()
+    record = roles.get(_ledger_key(job)) if isinstance(roles, dict) else None
+    if not isinstance(record, dict):
+        return False
+    return record.get("status") in suppress
+
+
 def collect_verified_jobs(
     keywords: list[str],
     context: ScoutContext,
@@ -68,12 +84,7 @@ def collect_verified_jobs(
     shortlist_size: int = 15,
     enable_linkedin: bool = True,
 ) -> list[dict]:
-    """Discover broadly, pre-rank cheaply, then browser-verify before publishing.
-
-    On managed acquisition, only the strongest candidate pool is opened in a real
-    rendered browser. This keeps cost/time reasonable while making live status and
-    posting age authoritative at publication time.
-    """
+    """Discover broadly, dedupe against persistent state, then verify before publishing."""
     candidates: list[dict] = []
     seen_ids: set[str] = set()
     seen_fingerprints: set[str] = set()
@@ -96,6 +107,9 @@ def collect_verified_jobs(
                     if job.key in seen_ids:
                         continue
                     seen_ids.add(job.key)
+
+                    if _suppressed_by_ledger(job, context):
+                        continue
 
                     fingerprint = "|".join(
                         (x or "").strip().lower() for x in [job.company, job.title, job.location]
@@ -120,8 +134,6 @@ def collect_verified_jobs(
                         "match": match,
                     })
 
-        # Verify best candidates first. We allow a generous pool because some will
-        # fail live-state, salary/location or duplicate gates at publication time.
         candidates.sort(key=lambda row: row["match"].score, reverse=True)
         verify_pool = candidates[: max(shortlist_size * 4, 40)]
         output: list[dict] = []
@@ -131,15 +143,14 @@ def collect_verified_jobs(
             if browser is not None:
                 job = browser.verify(job)
             else:
-                # Local/direct mode keeps the collector's own final verification.
                 source_collector = next(c for s, c in collectors if s == job.source)
                 job = source_collector.verify_and_enrich(job)
 
             if not _publishable(job):
                 continue
+            if _suppressed_by_ledger(job, context):
+                continue
 
-            # Re-evaluate preferences after rendered verification because page-derived
-            # work arrangement / freshness may differ from discovery metadata.
             preference = evaluate_preferences(job)
             if not preference.allowed:
                 continue
@@ -168,6 +179,7 @@ def collect_verified_jobs(
                     "verified_at": job.verified_at,
                     "verification_method": job.verification_method,
                     "freshness_adjustment": freshness,
+                    "ledger_key": _ledger_key(job),
                 },
             })
             if len(output) >= shortlist_size:

@@ -1,32 +1,42 @@
 # Career Scout AU
 
-Career Scout AU is the SEEK-first job-discovery and opportunity-ranking companion to Career Operator AU.
+Career Scout AU is the SEEK-first job-discovery, verification and opportunity-ranking companion to Career Operator AU.
 
-## v1 pipeline
+## v1.1 pipeline
 
-1. Search broadly across senior Sydney program, delivery and transformation role families on SEEK using a rolling seven-day window.
-2. Capture the SEEK job ID and canonical individual `/job/<ID>` URL.
-3. Deduplicate against both the current run and the persistent Career Operator Vault role ledger.
-4. Apply Career Scout location, remuneration and employer-environment preferences from the Vault.
-5. Score against the evidence-aware Career Operator matching profile and reject genuine hard gaps.
-6. Open the individual vacancy in a rendered browser and verify that it is still live before publication.
-7. Re-evaluate page-derived details after verification and rank only actionable opportunities.
-8. Persist the latest run status/shortlist for auditability while keeping candidate evidence and application state authoritative in the private Vault.
+1. Discover SEEK vacancies through broad, overlapping senior-role searches using a rolling seven-day window.
+2. Capture the SEEK job ID and canonical individual `/job/<id>` URL.
+3. Consult the Career Operator role ledger before expensive verification so previously processed opportunities are not presented as new.
+4. Retrieve and normalise the full job description.
+5. Apply Career Scout preferences and Career Operator evidence-aware fit scoring.
+6. Reject genuine mandatory hard gaps; do not convert adjacency into specialist expertise.
+7. Render/open the individual vacancy and verify that it is currently live before publication.
+8. Re-run preference and fit gates on page-derived data.
+9. Re-check the ledger before publication and suppress roles already shortlisted, CV-created, applied, interviewed, rejected, closed or expired.
+10. Produce a ranked, directly clickable shortlist for human review.
 
 ## Source of truth
 
-Career Operator AU remains authoritative for candidate evidence, preferences and application state. Career Scout reads:
+Candidate evidence and preferences are intentionally not duplicated here. Career Operator remains authoritative.
 
 - `career-operator-vault/10_Job_Scout/MATCHING_PROFILE.json`
 - `career-operator-vault/10_Job_Scout/SCOUT_PREFERENCES.json`
 - `career-operator-vault/10_Job_Scout/ROLE_LEDGER.json`
 
-`ROLE_LEDGER.json` uses `<source>:<job_id>` as its persistent key (for example `seek:93977247`). Roles already shortlisted, CV-created, applied, interviewing, rejected, closed or expired are suppressed as new discoveries.
+The role ledger is the persistent opportunity-state store. SEEK uses `seek:<job_id>` as the primary identity key.
 
-## SEEK guardrail
+## Closed-loop role states
 
-A SEEK role cannot enter the actionable shortlist unless the individual vacancy URL resolves to the same SEEK job ID and the vacancy is verified as currently live. Search cards, search-engine snippets and stale indexed pages are discovery evidence only, never final live-state evidence.
+Supported states are:
 
-## Runtime
+`NEW -> SHORTLISTED -> CV_CREATED -> APPLIED -> INTERVIEW`
 
-The GitHub Action runs daily at 8:00am Australia/Sydney. It uses SEEK as the primary/only automated source, searches a rolling seven-day window, reads the private Career Operator Vault through `CAREER_OPERATOR_TOKEN`, and uses `APIFY_TOKEN` for managed SEEK acquisition and rendered verification.
+Terminal/exit states are `REJECTED`, `CLOSED` and `EXPIRED`.
+
+Career Operator should write back user-confirmed application changes immediately when the vacancy identity is unambiguous. Successful CV creation should move a tracked role to `CV_CREATED` unless it is already further through the funnel. Scout-confirmed expiry may move a tracked pre-application role to `EXPIRED`; it must not overwrite an `APPLIED` or `INTERVIEW` state because an advert closing does not prove the candidacy has ended.
+
+## Core guardrail
+
+A job cannot enter the actionable shortlist unless its individual vacancy is verified as currently live. Search/index results alone are never sufficient evidence that a job is live.
+
+A role already present in the role ledger with a suppressed status cannot be presented as a new opportunity, even if SEEK reposts or refreshes the vacancy metadata.

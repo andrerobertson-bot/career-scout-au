@@ -10,7 +10,7 @@ from career_scout.models import Job
 
 
 class SeekApifyCollector:
-    """Fresh SEEK discovery constrained to the last day.
+    """Fresh SEEK discovery across a rolling seven-day window.
 
     Discovery data is used for title/JD/salary/work arrangement only. Live status
     and displayed posting age are always re-checked later in a rendered browser.
@@ -64,7 +64,7 @@ class SeekApifyCollector:
             "keywords": keywords,
             "location": location,
             "country": "AU",
-            "dateRange": 1,
+            "dateRange": 7,
             "sortMode": "ListedDate",
             "fetchDescriptions": True,
             "maxItems": 100,
@@ -106,11 +106,10 @@ class SeekApifyCollector:
                 bullet_points=[str(x) for x in (row.get("bullet_points") or row.get("bulletPoints") or [])],
                 is_live=None,
                 is_expired=None,
-                status="DISCOVERED_PAST_DAY_UNVERIFIED",
+                status="DISCOVERED_PAST_7_DAYS_UNVERIFIED",
                 raw=row,
             ))
         return jobs
 
     def verify_and_enrich(self, job: Job) -> Job:
-        # Final status/freshness validation is rendered-browser based in pipeline.
         return job

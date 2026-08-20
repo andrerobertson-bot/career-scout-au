@@ -33,7 +33,9 @@ Supported states are:
 
 Terminal/exit states are `REJECTED`, `CLOSED` and `EXPIRED`.
 
-Career Operator should write back user-confirmed application changes immediately when the vacancy identity is unambiguous. Successful CV creation should move a tracked role to `CV_CREATED` unless it is already further through the funnel. Scout-confirmed expiry may move a tracked pre-application role to `EXPIRED`; it must not overwrite an `APPLIED` or `INTERVIEW` state because an advert closing does not prove the candidacy has ended.
+Career Operator writes back user-confirmed application changes when the vacancy identity is unambiguous. Successful CV creation moves a tracked role to `CV_CREATED` unless it is already further through the funnel. Scout-confirmed expiry may move a tracked pre-application role to `EXPIRED`; it must not overwrite an `APPLIED` or `INTERVIEW` state because an advert closing does not prove the candidacy has ended.
+
+`src/career_scout/role_state.py` contains the shared transition/suppression rules and `tests/test_role_state.py` guards against accidental regression or overwriting active applications.
 
 ## Core guardrail
 

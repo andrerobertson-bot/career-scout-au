@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 import requests
@@ -12,6 +12,7 @@ import requests
 class ScoutContext:
     profile: dict[str, Any]
     preferences: dict[str, Any]
+    ledger: dict[str, Any] = field(default_factory=dict)
 
 
 class VaultLoader:
@@ -19,7 +20,8 @@ class VaultLoader:
 
     In GitHub Actions, set CAREER_OPERATOR_TOKEN to a fine-grained token with
     read access to career-operator-vault. Local runs can alternatively point
-    CAREER_SCOUT_PROFILE_FILE and CAREER_SCOUT_PREFERENCES_FILE at JSON files.
+    CAREER_SCOUT_PROFILE_FILE, CAREER_SCOUT_PREFERENCES_FILE and optionally
+    CAREER_SCOUT_LEDGER_FILE at local JSON files.
     """
 
     def __init__(self, repo: str = "andrerobertson-bot/career-operator-vault", branch: str = "main"):
@@ -30,11 +32,17 @@ class VaultLoader:
     def load(self) -> ScoutContext:
         profile_file = os.getenv("CAREER_SCOUT_PROFILE_FILE")
         prefs_file = os.getenv("CAREER_SCOUT_PREFERENCES_FILE")
+        ledger_file = os.getenv("CAREER_SCOUT_LEDGER_FILE")
         if profile_file and prefs_file:
-            return ScoutContext(self._read_local(profile_file), self._read_local(prefs_file))
+            return ScoutContext(
+                self._read_local(profile_file),
+                self._read_local(prefs_file),
+                self._read_local(ledger_file) if ledger_file else {},
+            )
         return ScoutContext(
             self._read_github("10_Job_Scout/MATCHING_PROFILE.json"),
             self._read_github("10_Job_Scout/SCOUT_PREFERENCES.json"),
+            self._read_github("10_Job_Scout/ROLE_LEDGER.json"),
         )
 
     @staticmethod
@@ -53,7 +61,7 @@ class VaultLoader:
                 "Accept": "application/vnd.github.raw+json",
                 "Authorization": f"Bearer {self.token}",
                 "X-GitHub-Api-Version": "2022-11-28",
-                "User-Agent": "Career-Scout-AU/0.2",
+                "User-Agent": "Career-Scout-AU/1.0",
             },
             timeout=30,
         )

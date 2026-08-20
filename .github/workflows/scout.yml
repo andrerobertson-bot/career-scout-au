@@ -7,7 +7,7 @@ on:
     paths-ignore:
       - "data/**"
   schedule:
-    - cron: "0 10 * * *"
+    - cron: "0 8 * * *"
       timezone: "Australia/Sydney"
 
 permissions:
@@ -39,7 +39,7 @@ jobs:
         run: |
           mkdir -p data
           set -o pipefail
-          career-scout --output career_scout_jobs.json --limit 15 2>&1 | tee data/scout.log
+          career-scout --seek-only --output career_scout_jobs.json --limit 15 2>&1 | tee data/scout.log
 
       - name: Upload shortlist artifact
         if: steps.scout.outcome == 'success'
@@ -69,7 +69,8 @@ jobs:
               'install_outcome': os.getenv('INSTALL_OUTCOME'),
               'test_outcome': os.getenv('TEST_OUTCOME'),
               'scout_outcome': os.getenv('SCOUT_OUTCOME'),
-              'window_hours': 24,
+              'window_days': 7,
+              'primary_source': 'SEEK',
               'shortlist_file': 'data/latest_shortlist.json' if os.path.exists('data/latest_shortlist.json') else None,
               'log_file': 'data/scout.log' if os.path.exists('data/scout.log') else None,
           }
